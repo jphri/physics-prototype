@@ -7,13 +7,14 @@
 #include "util.h"
 #include "measure.h"
 
-#define N_BODY 2048
+#define N_BODY 4096
 #define PHYSICS_ITERATIONS (8 * 60)
 #define PHYSICS_TIME (1.0 / PHYSICS_ITERATIONS)
 
-#define GRID_SIZE 100
-#define GRID_BUFFER_SIZE (GRID_SIZE * GRID_SIZE)
-#define GRID_TILE_SIZE 32
+#define GRID_BITS 18
+#define GRID_BUFFER_SIZE (1 << GRID_BITS)
+#define GRID_BUFFER_MASK (GRID_BUFFER_SIZE - 1)
+#define GRID_TILE_SIZE 16
 
 #define UINTMAX_BITS (sizeof(uintmax_t) * 8)
 
@@ -36,6 +37,17 @@ typedef struct {
 
 #define RAND_FLOAT (rand() / (Float)RAND_MAX)
 #define RAND(MIN, MAX) (RAND_FLOAT * (MAX - MIN) + MIN)
+
+static inline uint_fast32_t hash_pos_comp(uint_fast32_t x)
+{
+	x &= (GRID_BUFFER_MASK);
+	return (x * 162013) & (GRID_BUFFER_MASK);
+}
+
+static inline uint_fast32_t hash_pos(uint_fast32_t x, uint_fast32_t y)
+{
+	return hash_pos_comp(x + hash_pos_comp(y));
+}
 
 static void solve_body(Body *body, Float delta);
 static void solve_body_grid_list(int grid_list, int other_grid, Float delta);
@@ -199,13 +211,10 @@ main()
 				calculate_grid();
 				max_object_count = 0;
 				for(int i = 0; i < GRID_BUFFER_SIZE; i++) {
-					int x = i % GRID_SIZE;
-					int y = i / GRID_SIZE;
-
 					object_count = 0;
 
-					solve_body_grid_list(grid_list[x + y * GRID_SIZE], grid_list[x + y * GRID_SIZE], delta);
-					solve_body_grid_list_static(grid_list[x + y * GRID_SIZE], static_grid_list[x + y * GRID_SIZE], delta);
+					solve_body_grid_list(grid_list[i], grid_list[i], delta);
+					solve_body_grid_list_static(grid_list[i], static_grid_list[i], delta);
 					if(object_count > max_object_count)
 						max_object_count = object_count;
 
@@ -494,20 +503,16 @@ calculate_grid_body(Body *b)
 	x     = floorf((b->position[0] - b->half_size[0]) / GRID_TILE_SIZE);
 	x_max = floorf((b->position[0] + b->half_size[0]) / GRID_TILE_SIZE);
 	y_max = floorf((b->position[1] + b->half_size[1]) / GRID_TILE_SIZE);
-	for(; x <= x_max; x++) {
-		if(x < 0 || x >= GRID_SIZE)
-			continue;
 
+	for(; x <= x_max; x++) {
 		y = floorf((b->position[1] - b->half_size[1]) / GRID_TILE_SIZE);
 		for(; y <= y_max; y++) {
-
-			if(y < 0 || y >= GRID_SIZE)
-				continue;
-
+			int hash = hash_pos(x, y);
+			
 			if(b->is_static)
-				add_body_list(&static_grid_list[x + y * GRID_SIZE], b);
+				add_body_list(&static_grid_list[hash], b);
 			else
-				add_body_list(&grid_list[x + y * GRID_SIZE], b);
+				add_body_list(&grid_list[hash], b);
 		}
 	}
 }
